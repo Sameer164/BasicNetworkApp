@@ -9,48 +9,58 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
-
+    @State private var user: GithubUser?
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
-        }
-    }
+        VStack(spacing:20) {
+            AsyncImage(url: URL(string: user?.avatarUrl ?? "")) { image in
+                image.resizable().aspectRatio(contentMode: .fit).clipShape(Circle())
+                
+            } placeholder: {
+                Circle().foregroundColor(.secondary).frame(width:120, height:120)
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
             }
+            
+            Text(user?.login ?? "Login Placeholder").font(.title3).bold()
+            
+            Text(user?.bio ?? "Bio Placeholder")
+            Spacer()
+            
+        }.padding()
+            .task{
+                do{
+                    user = try await getUser()
+                } catch NetworkError.invalidURL {
+                    print("invalid url")
+                } catch NetworkError.invalidResponse {
+                    print("invalid response")
+                } catch NetworkError.invalidData {
+                    print("invalid data")
+                } catch {
+                    print("unexpected error")
+                }
+            }
+    }
+    
+    func getUser() async throws -> GithubUser {
+        let endpoint = "https://api.github.com/users/Sameer164"
+        guard let url = URL(string: endpoint) else {
+            throw NetworkError.invalidURL
+        }
+        
+        let (data, response) = try await URLSession.shared.data(from:url)
+        
+        guard let response = response as? HTTPURLResponse,
+            response.statusCode == 200 else {
+                throw NetworkError.invalidResponse
+            }
+        
+        do {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode(GithubUser.self, from:data)
+        }
+        catch {
+            throw NetworkError.invalidData
         }
     }
 }
@@ -58,4 +68,16 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .modelContainer(for: Item.self, inMemory: true)
+}
+
+struct GithubUser: Codable {
+    let login: String
+    let avatarUrl: String
+    let bio: String?
+}
+
+enum NetworkError: Error {
+    case invalidURL
+    case invalidResponse
+    case invalidData
 }
